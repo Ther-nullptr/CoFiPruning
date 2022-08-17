@@ -47,7 +47,6 @@ class CoFiBertForSequenceClassification(BertForSequenceClassification):
         self.bert = CoFiBertModel(config)
 
         self.do_layer_distill = getattr(config, "do_layer_distill", False)
-
         if self.do_layer_distill:
             self.layer_transformation = nn.Linear(
                 config.hidden_size, config.hidden_size)
@@ -218,7 +217,7 @@ class CoFiBertModel(BertModel):
         mlp_z=None,
         hidden_z=None
     ):
-
+        #logger.info(f'head_layer_z:{head_layer_z.shape},head_z:{head_z.shape},intermediate_z:{intermediate_z.shape},mlp_z:{mlp_z.shape},hidden_z:{hidden_z.shape}')
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -248,7 +247,13 @@ class CoFiBertModel(BertModel):
         # ourselves in which case we just need to make it broadcastable to all heads.
         extended_attention_mask: torch.Tensor = self.get_extended_attention_mask(
             attention_mask, input_shape, device)
-
+        
+        if(input_ids !=None):
+            logger.info(f'input_ids:{input_ids.shape}')
+        if(position_ids !=None):
+            logger.info(f'position_ids:{position_ids.shape}')
+        if(token_type_ids !=None):
+            logger.info(f'token_type_ids:{token_type_ids.shape}')
         embedding_output = self.embeddings(
             input_ids=input_ids, position_ids=position_ids, token_type_ids=token_type_ids, inputs_embeds=inputs_embeds, hidden_z=hidden_z
         )
@@ -267,6 +272,7 @@ class CoFiBertModel(BertModel):
         )
 
         sequence_output = encoder_outputs[0]
+        logger.info(f'encoder_outputs[0](sequence_output):{encoder_outputs[0].shape}')
         pooled_output = self.pooler(sequence_output)
 
         if not return_dict:
@@ -376,6 +382,7 @@ class CoFiBertLayer(BertLayer):
     def feed_forward_chunk(self, attention_output):
         intermediate_output = self.intermediate(attention_output)
         if self.intermediate_z is not None:
+            
             intermediate_output = intermediate_output.mul(self.intermediate_z)
         layer_output = self.output(
             intermediate_output, attention_output, self.mlp_z, self.hidden_z)
@@ -501,6 +508,7 @@ class CoFiBertSelfAttention(BertSelfAttention):
             math.sqrt(self.attention_head_size)
 
         if attention_mask is not None:
+            
             attention_scores = attention_scores + attention_mask
 
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
@@ -509,6 +517,7 @@ class CoFiBertSelfAttention(BertSelfAttention):
         value_layer = self.transpose_for_scores(mixed_value_layer)
         context_layer = torch.matmul(attention_probs, value_layer)
         if head_z is not None:
+            
             context_layer *= head_z
 
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
@@ -561,6 +570,7 @@ class CoFiBertOutput(BertOutput):
     def forward(self, hidden_states, input_tensor, mlp_z, hidden_z=None, inference=False):
         hidden_states = self.dense(hidden_states)
         if mlp_z is not None:
+            
             hidden_states *= mlp_z
         if not inference and hidden_states.sum().eq(0).item():
             return hidden_states + input_tensor
