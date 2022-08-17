@@ -204,6 +204,7 @@ def prune_model_with_z(zs, model):
     if kept_intermediate_dims is not None:
         prune_intermediate_layers(model, kept_intermediate_dims)
 
+    # print model params
     for layer in range(0, 12):
         print("Layer:", layer)
         if bert.encoder.layer[layer].attention.self.query is not None:

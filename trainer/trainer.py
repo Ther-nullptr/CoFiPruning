@@ -684,7 +684,7 @@ class CoFiTrainer(Trainer):
                     self.global_step - self.prepruning_finetune_steps)
             loss += lagrangian_loss
 
-        if self.args.gradient_accumulation_steps > 1:
+        if self.args.gradient_accumulation_steps > 1: # TODO
             loss = loss / self.args.gradient_accumulation_steps
 
         loss.backward()

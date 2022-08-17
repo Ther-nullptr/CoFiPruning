@@ -145,3 +145,7 @@ scripts/push_to_hub.sh
 *.bin
 out/
 wandb/
+
+*.pt
+
+teacher-model/

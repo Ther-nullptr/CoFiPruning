@@ -95,7 +95,7 @@ def main():
     if data_args.task_name is not None:
         # Downloading and loading a dataset from the hub.
         raw_datasets = load_dataset(
-            "/mnt/lustre/sjtu/home/xc915/superb/CoFiPruning/glue.py", data_args.task_name.replace("-", ""), cache_dir=model_args.cache_dir)
+            "/home/nullptr/open-source/CoFiPruning/glue/glue.py", data_args.task_name.replace("-", ""), cache_dir=model_args.cache_dir)
         t_name = data_args.task_name
     elif data_args.dataset_name is not None:
         # Downloading and loading a dataset from the hub.
@@ -332,7 +332,7 @@ def main():
 
     # Get the metric function
     if data_args.task_name is not None:
-        metric = load_metric("glue", data_args.task_name)
+        metric = load_metric("/home/nullptr/open-source/CoFiPruning/glue", data_args.task_name)
     else:
         metric = load_metric("accuracy")
 
