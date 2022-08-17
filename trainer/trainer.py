@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 import torch.nn.functional as F
+import logging
 from packaging import version
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.dataset import Dataset
@@ -32,7 +33,7 @@ from utils.utils import *
 
 import wandb
 
-logger = logging.get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 glue_tasks = {"cola": "matthews_correlation",
               "mnli": "mnli/acc",
@@ -73,7 +74,7 @@ class Eval_Counter():
         self.eval_score = 0
 
 
-class CoFiTrainer(Trainer):
+class CoFiTrainer(Trainer): #! Trainer is a transformer library
     def __init__(
             self,
             model: PreTrainedModel = None,
@@ -96,7 +97,7 @@ class CoFiTrainer(Trainer):
         self.additional_args = additional_args
 
         self.l0_module = l0_module
-        self.prepruning_finetune_steps = 100
+        self.prepruning_finetune_steps = 0
         self.start_prune = False
 
         self.l0_optimizer = None
@@ -110,7 +111,6 @@ class CoFiTrainer(Trainer):
             self.teacher_model = self.teacher_model.to(self.args.device)
 
         log_level = args.get_process_log_level()
-        logging.set_verbosity(log_level)
         logger.setLevel(log_level)
 
     def create_optimizer_and_scheduler(self, num_training_steps: int):
@@ -181,7 +181,7 @@ class CoFiTrainer(Trainer):
 
         if self.l0_module is not None:
             lagrangian_warmup_steps = self.additional_args.lagrangian_warmup_epochs * num_update_steps_per_epoch #! 24544
-            # self.prepruning_finetune_steps = self.additional_args.prepruning_finetune_epochs * num_update_steps_per_epoch
+            self.prepruning_finetune_steps = self.additional_args.prepruning_finetune_epochs * num_update_steps_per_epoch
             self.l0_module.set_lagrangian_warmup_steps(lagrangian_warmup_steps)
             logger.info(f"Prepruning finetune steps: {self.prepruning_finetune_steps}")
             logger.info(f"Lagrangian warmup steps: {lagrangian_warmup_steps}")
@@ -200,6 +200,7 @@ class CoFiTrainer(Trainer):
         self.create_optimizer_and_scheduler(num_training_steps=self.t_total)
 
         model = self.model
+        logger.info(f'view model before training:{model}')
 
         total_train_batch_size = (
             self.args.train_batch_size
@@ -243,7 +244,7 @@ class CoFiTrainer(Trainer):
         if self.lagrangian_optimizer is not None:
             self.lagrangian_optimizer.zero_grad()
 
-        disable_tqdm = self.args.disable_tqdm or not self.is_local_process_zero()
+        disable_tqdm = True
         train_pbar = trange(epochs_trained, int(
             np.ceil(num_train_epochs)), desc="Epoch", disable=disable_tqdm)
 
@@ -267,7 +268,7 @@ class CoFiTrainer(Trainer):
             self.eval_counter.clear()
 
             for step, inputs in enumerate(epoch_iterator):
-                if self.prepruning_finetune_steps > 0 and self.global_step == self.prepruning_finetune_steps: #! before pruning, run 12272 steps
+                if self.prepruning_finetune_steps > 0 and self.global_step == self.prepruning_finetune_steps: #! before pruning, run 12272 steps    
                     self.start_prune = True
 
                     self.optimizer = None
@@ -280,6 +281,10 @@ class CoFiTrainer(Trainer):
 
                 if self.start_prune:
                     zs = self.l0_module.forward(training=True) #! get the zs
+                    print(f'step:{self.global_step}')
+                    for key in zs.keys():
+                        print(zs[key].mean())
+                    logger.info(f'zs keys:{zs.keys()}')
                     self.fill_inputs_with_zs(zs, inputs) #! use the zs
 
                 loss_terms = self.training_step(model, inputs)
@@ -360,7 +365,7 @@ class CoFiTrainer(Trainer):
                     break
 
             epoch_end = time.time()
-            # wandb.log({'epoch':epoch})
+
             logger.info(
                 f"Epoch {epoch} finished. Took {round(epoch_end - epoch_start, 2)} seconds.")
 
@@ -376,7 +381,6 @@ class CoFiTrainer(Trainer):
             # Clean the state at the end of training
             delattr(self, "_past")
 
-        # wandb.log({'global_step':self.global_step,'training_loss':tr_loss.item() / self.global_step})
         return TrainOutput(self.global_step, tr_loss.item() / self.global_step, None)
 
     def prediction_loop(self, dataloader: DataLoader, description: str, prediction_loss_only: Optional[bool] = None) -> PredictionOutput:
@@ -502,7 +506,6 @@ class CoFiTrainer(Trainer):
             eval_dataloader, description="Evaluation")
 
         self.log(output.metrics)
-        # wandb.log(output.metrics)
         output.metrics["step"] = self.global_step
 
         logger.info(f"Evaluating: {output.metrics}")
@@ -520,6 +523,12 @@ class CoFiTrainer(Trainer):
                     break
 
         # logger.info(f"starting saving best: {self.global_step} {self.start_saving_best}")
+        if self.global_step % 500 == 0:
+            zs = self.l0_module.forward(training=False)
+            best_dir = os.path.join(self.args.output_dir, "best")
+            torch.save(zs, os.path.join(best_dir, f"zs_{self.global_step}.pt"))
+            torch.save(self.l0_module, os.path.join(
+                        best_dir, f"l0_module_{self.global_step}.pt"))
 
         if self.start_saving_best:
             best_so_far = self.eval_counter.update(
@@ -640,7 +649,7 @@ class CoFiTrainer(Trainer):
         loss = self.additional_args.distill_ce_loss_alpha * ce_distill_loss
         if distill_loss is not None:
             loss += self.additional_args.distill_loss_alpha * distill_loss
-
+        wandb.log({'distill_loss':distill_loss, 'ce_distill_loss':ce_distill_loss, 'loss':loss})
         return distill_loss, ce_distill_loss, loss
 
     def shortens_inputs(self, inputs):
@@ -686,13 +695,9 @@ class CoFiTrainer(Trainer):
 
         if self.args.gradient_accumulation_steps > 1:
             loss = loss / self.args.gradient_accumulation_steps
-
         loss.backward()
-        
-        # wandb.log({"loss": loss.detach(),
-        #         "lagrangian_loss": lagrangian_loss.detach() if lagrangian_loss is not None else None,
-        #         "distill_layer_loss": distill_loss.detach() if distill_loss is not None else None,
-        #         "distill_ce_loss": distill_ce_loss.detach() if distill_ce_loss is not None else None})
+
+        print(f'loss:{loss}, lagrangian_loss:{lagrangian_loss}, distill_layer_loss:{distill_loss}, distill_ce_loss:{distill_ce_loss}')
         
         return {"loss": loss.detach(),
                 "lagrangian_loss": lagrangian_loss.detach() if lagrangian_loss is not None else None,

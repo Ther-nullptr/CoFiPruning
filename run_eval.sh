@@ -1,0 +1,1 @@
+python evaluation.py RTE /mnt/lustre/sjtu/home/xc915/superb/CoFiPruning/out/RTE/CoFi/RTE_sparsity0.95

@@ -56,6 +56,11 @@ class CoFiQATrainer(CoFiTrainer):
         name = "f1"
         eval_score = metrics[name]
 
+        if self.global_step % 100 == 0:
+            torch.save(zs, os.path.join(best_dir, f"zs_{self.global_step}.pt"))
+            torch.save(self.l0_module, os.path.join(
+                    best_dir, f"l0_module_{self.global_step}.pt"))
+
         if self.start_saving_best:
             best_so_far = self.eval_counter.update(
                 self.epoch, self.global_step, eval_score)

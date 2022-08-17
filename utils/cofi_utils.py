@@ -7,6 +7,9 @@ from transformers.file_utils import hf_bucket_url, cached_path
 
 from utils.utils import calculate_parameters
 
+import logging
+logger = logging.getLogger(__name__)
+
 def edit_config(config, additional_args):
     config.transform_embedding = additional_args.transform_embedding
     config.do_distill = additional_args.do_distill
@@ -14,14 +17,16 @@ def edit_config(config, additional_args):
 
 def initialize_layer_transformation(model):
     model.layer_transformation.weight.data.copy_(
-        torch.eye(len(model.layer_transformation.weight)))
+        torch.eye(len(model.layer_transformation.weight))) #! 768
     model.layer_transformation.bias.data.fill_(0)
 
 def load_model_with_zs(model_path, model_class, zs=None):
     config_path = os.path.join(model_path, "config.json")
     if os.path.exists(config_path):
         config = AutoConfig.from_pretrained(model_path)
+    
     model = model_class.from_pretrained(model_path, config=config)
+    print(f'the model before prunc:{model}')
     p = os.path.join(model_path, "pytorch_model.bin")
     loaded_weights = torch.load(p, map_location="cpu")
     model.load_state_dict(loaded_weights)
@@ -31,6 +36,7 @@ def load_model_with_zs(model_path, model_class, zs=None):
     print(f"Model Size before pruning: {calculate_parameters(model)}")
     prune_model_with_z(zs, model)
     print(f"Model Size after pruning: {calculate_parameters(model)}")
+    print(f'the model after prunc:{model}')
     return model
 
 def load_model(model_path, model_class, zs=None, num_labels=2):
@@ -249,7 +255,7 @@ def load_zs(model_path):
         if zs is None:
             model_path = os.path.dirname(model_path)
             l0_module = torch.load(os.path.join(model_path, "l0_module.pt"), map_location="cpu")
-            zs = l0_module.forward(training=False)
+            zs = l0_module.forward(training=False) #! If there is not any zs models, you may generate one zs model with l0_module
         return zs
     else:
         return None

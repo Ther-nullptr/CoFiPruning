@@ -145,3 +145,7 @@ scripts/push_to_hub.sh
 *.bin
 out/
 wandb/
+teacher-model/
+example_model/
+MLNI*/
+RTE*/
