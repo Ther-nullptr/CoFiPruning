@@ -594,6 +594,10 @@ class CoFiTrainer(Trainer): #! Trainer is a transformer library
                 layerwiseloss = torch.stack(l).reshape(
                     len(specified_teacher_layer_reps), len(student_layer_output)) #! [4,12]
 
+                for i in range(len(specified_teacher_layer_reps)):
+                    for j in range(len(student_layer_output)):
+                        wandb.log({f'{specified_teacher_layers[i]}-{j}':layerwiseloss[i][j]})
+
                 existing_layers = None
                 if head_layer_z is not None:
                     existing_layers = head_layer_z != 0
@@ -626,6 +630,9 @@ class CoFiTrainer(Trainer): #! Trainer is a transformer library
                     logger.info(
                         f"{self.additional_args.layer_distill_version} version is not specified.")
                     sys.exit()
+
+                for i in range(len(alignment)):
+                    wandb.log({f"align_{i+1}": int(alignment[i])})
 
                 layerwise = torch.arange(4).to(device)
                 layer_loss += layerwiseloss[layerwise, alignment].sum() #! layerwise: teacher (specified layers) / alignment: student (min loss layers) / layerwiseloss: [4,12]
